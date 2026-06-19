@@ -16,6 +16,25 @@ cp .env.example .env
 # Fill in OPENAI_API_KEY and ELEVENLABS_API_KEY
 ```
 
+### Text-to-speech provider
+
+OpenAI TTS is the default for human-like narration previews and packaged Show File audio:
+
+```bash
+TTS_PROVIDER=openai
+OPENAI_TTS_MODEL=gpt-4o-mini-tts
+OPENAI_TTS_VOICE=marin
+```
+
+Good built-in voices to try: `marin`, `cedar`, `coral`, `nova`, `shimmer`.
+
+For offline/dev fallback, use free local TTS:
+
+```bash
+TTS_PROVIDER=free-local
+sudo apt install espeak-ng
+```
+
 ### 2. Backend
 
 ```bash
@@ -52,6 +71,33 @@ npm run dev
 ```
 
 UI available at `http://localhost:5173`
+
+## Kill Busy Ports And Rerun
+
+If the backend or frontend says the port is already in use, kill the process on that port and start it again.
+
+### Backend port `8000`
+
+```bash
+sudo lsof -ti:8000 | xargs -r kill -9
+cd backend
+source .venv/bin/activate
+uvicorn app.main:app --reload
+```
+
+### Frontend port `5173`
+
+```bash
+sudo lsof -ti:5173 | xargs -r kill -9
+cd frontend
+npm run dev
+```
+
+### One-liner for both
+
+```bash
+sudo lsof -ti:8000,5173 | xargs -r kill -9
+```
 
 ## Test
 

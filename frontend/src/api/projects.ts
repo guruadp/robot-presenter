@@ -10,6 +10,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const res = await fetch(`${BASE}${path}`, init);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.blob();
+}
+
 function json<T>(path: string, method: string, body: unknown): Promise<T> {
   return request<T>(path, {
     method,
@@ -115,8 +124,27 @@ export interface Project {
   tone_profile: ToneProfile;
   knowledge_bases: ProjectKnowledgeBase[];
   slides: ProjectSlide[];
+  show_files: ShowFile[];
   created_at: string;
   updated_at: string;
+}
+
+export interface ShowFile {
+  id: string;
+  project_id: string;
+  version: number;
+  status: string;
+  manifest_path: string;
+  bundle_path: string;
+  manifest: Record<string, unknown>;
+  validation_errors: string[];
+  tts_provider: string;
+  created_at: string;
+}
+
+export interface PackageGate {
+  ok: boolean;
+  errors: string[];
 }
 
 export interface ProjectCreate {
@@ -142,6 +170,14 @@ export const projectApi = {
   },
   generateScripts: (projectId: string) =>
     request<Project>(`/projects/${projectId}/scripts`, { method: "POST" }),
+  packageGate: (projectId: string) =>
+    request<PackageGate>(`/projects/${projectId}/package-gate`),
+  listShowFiles: (projectId: string) =>
+    request<ShowFile[]>(`/projects/${projectId}/show-files`),
+  packageShowFile: (projectId: string) =>
+    request<ShowFile>(`/projects/${projectId}/show-files`, { method: "POST" }),
+  showFileDownloadUrl: (projectId: string, showFileId: string) =>
+    `${BASE}/projects/${projectId}/show-files/${showFileId}/download`,
   regenerateScript: (
     projectId: string,
     slideId: string,
@@ -177,6 +213,20 @@ export const projectApi = {
       `/projects/${projectId}/slides/${slideId}/script/review-settings`,
       "PATCH",
       body
+    ),
+  previewSegmentAudio: (
+    projectId: string,
+    slideId: string,
+    segmentIndex: number,
+    previewConfig: Record<string, unknown>
+  ) =>
+    requestBlob(
+      `/projects/${projectId}/slides/${slideId}/script/segments/${segmentIndex}/preview-audio`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preview_config: previewConfig }),
+      }
     ),
   slideImageUrl: (projectId: string, slideId: string) =>
     `${BASE}/projects/${projectId}/slides/${slideId}/image`,

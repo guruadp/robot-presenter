@@ -76,6 +76,10 @@ class ScriptReviewSettingsRequest(BaseModel):
     preview_config: dict = Field(default_factory=dict)
 
 
+class ScriptAudioPreviewRequest(BaseModel):
+    preview_config: dict = Field(default_factory=dict)
+
+
 class ProjectSlideOut(BaseModel):
     id: str
     project_id: str
@@ -92,6 +96,26 @@ class ProjectSlideOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ShowFileOut(BaseModel):
+    id: str
+    project_id: str
+    version: int
+    status: str
+    manifest_path: str
+    bundle_path: str
+    manifest: dict = Field(default_factory=dict)
+    validation_errors: list[str] = Field(default_factory=list)
+    tts_provider: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PackageGateOut(BaseModel):
+    ok: bool
+    errors: list[str] = Field(default_factory=list)
+
+
 class ProjectOut(BaseModel):
     id: str
     name: str
@@ -99,6 +123,7 @@ class ProjectOut(BaseModel):
     tone_profile: ToneProfile
     knowledge_bases: list[ProjectKnowledgeBaseOut]
     slides: list[ProjectSlideOut] = []
+    show_files: list[ShowFileOut] = []
     created_at: datetime
     updated_at: datetime
 

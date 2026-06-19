@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Archive,
   Check,
   ChevronLeft,
   ChevronRight,
   Clock,
   Edit3,
   FileText,
+  Download,
   Play,
   RefreshCw,
   RotateCcw,
@@ -16,7 +18,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ProjectSlide, projectApi } from "../api/projects";
+import { PackageGate, ProjectSlide, ShowFile, projectApi } from "../api/projects";
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
@@ -36,6 +38,11 @@ export default function ProjectDetailPage() {
     queryFn: () => projectApi.get(id!),
     enabled: !!id,
   });
+  const { data: packageGate } = useQuery({
+    queryKey: ["projects", id, "package-gate"],
+    queryFn: () => projectApi.packageGate(id!),
+    enabled: !!id && !!project?.slides.length,
+  });
 
   useEffect(() => {
     if (project?.slides.length && selectedIndex >= project.slides.length) {
@@ -53,6 +60,10 @@ export default function ProjectDetailPage() {
 
   const generateMutation = useMutation({
     mutationFn: () => projectApi.generateScripts(id!),
+    onSuccess: () => invalidateProject(queryClient, id),
+  });
+  const packageMutation = useMutation({
+    mutationFn: () => projectApi.packageShowFile(id!),
     onSuccess: () => invalidateProject(queryClient, id),
   });
 
@@ -125,6 +136,15 @@ export default function ProjectDetailPage() {
             >
               Generate Scripts
             </Button>
+            <Button
+              variant="secondary"
+              icon={<Archive size={14} />}
+              loading={packageMutation.isPending}
+              disabled={!project.slides.length || packageGate?.ok === false}
+              onClick={() => packageMutation.mutate()}
+            >
+              Package Show File
+            </Button>
           </div>
           <input
             ref={fileRef}
@@ -139,9 +159,9 @@ export default function ProjectDetailPage() {
           />
         </div>
 
-        {(uploadMutation.error || generateMutation.error) && (
+        {(uploadMutation.error || generateMutation.error || packageMutation.error) && (
           <p className="text-xs text-red-500 mt-3">
-            {((uploadMutation.error || generateMutation.error) as Error).message}
+            {((uploadMutation.error || generateMutation.error || packageMutation.error) as Error).message}
           </p>
         )}
       </div>
@@ -159,6 +179,11 @@ export default function ProjectDetailPage() {
         />
       ) : (
         <div className="space-y-4">
+          <PackagePanel
+            projectId={project.id}
+            gate={packageGate}
+            showFiles={project.show_files}
+          />
           <SlidePager
             slides={project.slides}
             selectedIndex={selectedIndex}
@@ -240,6 +265,74 @@ function SlidePager({
   );
 }
 
+function PackagePanel({
+  projectId,
+  gate,
+  showFiles,
+}: {
+  projectId: string;
+  gate: PackageGate | undefined;
+  showFiles: ShowFile[];
+}) {
+  const latest = [...showFiles].sort((a, b) => b.version - a.version)[0];
+
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Archive size={16} className="text-gray-400" />
+            <h2 className="font-semibold text-gray-900">Packaging Gate</h2>
+            {gate?.ok ? (
+              <Badge variant="green">Ready</Badge>
+            ) : (
+              <Badge variant="amber">Needs review</Badge>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            Approved scripts are frozen with slide images and pre-rendered audio into an immutable Show File.
+          </p>
+          {gate && !gate.ok && (
+            <ul className="mt-2 space-y-1 text-xs text-amber-700">
+              {gate.errors.slice(0, 5).map((error) => (
+                <li key={error}>• {error}</li>
+              ))}
+              {gate.errors.length > 5 && (
+                <li>• {gate.errors.length - 5} more gate checks...</li>
+              )}
+            </ul>
+          )}
+        </div>
+
+        {latest ? (
+          <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm">
+            <div className="flex items-center gap-2">
+              <Badge variant={latest.status === "ready" ? "green" : "red"}>
+                Show v{latest.version} {latest.status}
+              </Badge>
+              <span className="text-xs text-gray-400">{latest.tts_provider}</span>
+            </div>
+            {latest.validation_errors.length > 0 && (
+              <p className="mt-1 text-xs text-red-500">
+                {latest.validation_errors.join(" · ")}
+              </p>
+            )}
+            <a
+              href={projectApi.showFileDownloadUrl(projectId, latest.id)}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 hover:bg-gray-50"
+            >
+              <Download size={13} />
+              Download Show File
+            </a>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400">No packaged Show File yet.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function SlidePanel({
   projectId,
   slide,
@@ -318,6 +411,7 @@ function ScriptPanel({
   const [draftNarration, setDraftNarration] = useState("");
   const [selectedCitationId, setSelectedCitationId] = useState<string | null>(null);
   const [previewSegment, setPreviewSegment] = useState<number | null>(null);
+  const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null);
   const [toneOverride, setToneOverride] = useState({
     persona: "",
     formality: "",
@@ -337,6 +431,8 @@ function ScriptPanel({
     setIsEditing(false);
     setSelectedCitationId(null);
     setPreviewSegment(null);
+    if (previewAudioUrl) URL.revokeObjectURL(previewAudioUrl);
+    setPreviewAudioUrl(null);
     setDraftNarration(slide?.script?.narration ?? "");
     setToneOverride({
       persona: stringValue(slide?.script?.tone_override.persona),
@@ -386,6 +482,22 @@ function ScriptPanel({
         preview_config: compactObject(previewConfig),
       }),
     onSuccess: () => onChanged(),
+  });
+  const previewAudioMutation = useMutation({
+    mutationFn: async (segmentIndex: number) => {
+      const blob = await projectApi.previewSegmentAudio(
+        projectId,
+        slide!.id,
+        segmentIndex,
+        compactObject(previewConfig)
+      );
+      return { segmentIndex, url: URL.createObjectURL(blob) };
+    },
+    onSuccess: ({ segmentIndex, url }) => {
+      if (previewAudioUrl) URL.revokeObjectURL(previewAudioUrl);
+      setPreviewSegment(segmentIndex);
+      setPreviewAudioUrl(url);
+    },
   });
 
   if (!slide) return null;
@@ -594,7 +706,11 @@ function ScriptPanel({
                         size="sm"
                         variant="secondary"
                         icon={<Play size={13} />}
-                        onClick={() => setPreviewSegment(segment.index)}
+                        loading={
+                          previewAudioMutation.isPending &&
+                          previewAudioMutation.variables === segment.index
+                        }
+                        onClick={() => previewAudioMutation.mutate(segment.index)}
                       >
                         Preview
                       </Button>
@@ -605,9 +721,20 @@ function ScriptPanel({
                       ))}
                     </div>
                     {previewSegment === segment.index && (
-                      <p className="mt-2 rounded-md bg-indigo-50 px-2 py-1 text-xs text-indigo-700">
-                        Preview queued with {previewConfig.voice_id || "project voice"}, {previewConfig.emphasis} emphasis, {previewConfig.pause_ms}ms pauses.
-                      </p>
+                      <div className="mt-2 rounded-md bg-indigo-50 px-2 py-2">
+                        <p className="mb-2 text-xs text-indigo-700">
+                          Playing with {previewConfig.voice_id || "project voice"}, {previewConfig.emphasis} emphasis, {previewConfig.pause_ms}ms pauses.
+                        </p>
+                        {previewAudioUrl && (
+                          <audio
+                            key={previewAudioUrl}
+                            src={previewAudioUrl}
+                            controls
+                            autoPlay
+                            className="w-full"
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -646,14 +773,16 @@ function ScriptPanel({
           editMutation.error ||
           approveMutation.error ||
           revertMutation.error ||
-          settingsMutation.error) && (
+          settingsMutation.error ||
+          previewAudioMutation.error) && (
           <p className="text-xs text-red-500">
             {errorMessage(
               regenerateMutation.error ||
                 editMutation.error ||
                 approveMutation.error ||
                 revertMutation.error ||
-                settingsMutation.error
+                settingsMutation.error ||
+                previewAudioMutation.error
             )}
           </p>
         )}

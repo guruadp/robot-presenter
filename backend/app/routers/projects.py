@@ -12,16 +12,20 @@ from app.database import get_db
 from app.models.knowledge_base import KnowledgeBase
 from app.models.project import Project, ProjectKnowledgeBase, ProjectSlide
 from app.schemas.project import (
+    PackageGateOut,
     ProjectCreate,
     ProjectOut,
     ProjectSlideOut,
     ProjectSlideScriptOut,
     ProjectUpdate,
     RegenerateScriptRequest,
+    ScriptAudioPreviewRequest,
     ScriptEditRequest,
     ScriptReviewSettingsRequest,
+    ShowFileOut,
 )
-from app.services import deck_ingestion, script_generation, slide_vision
+from app.services import deck_ingestion, script_generation, show_file, slide_vision
+from app.services.tts import get_tts_provider
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -147,6 +151,74 @@ def list_slides(project_id: str, db: DbDep) -> list[ProjectSlide]:
     return project.slides
 
 
+@router.get("/{project_id}/package-gate", response_model=PackageGateOut)
+def get_package_gate(project_id: str, db: DbDep) -> dict:
+    project = _get_project_or_404(project_id, db)
+    _mark_stale_scripts_for_kb_changes(project, db)
+    db.commit()
+    errors = show_file.validate_packaging_gate(project)
+    return {"ok": not errors, "errors": errors}
+
+
+@router.get("/{project_id}/show-files", response_model=list[ShowFileOut])
+def list_show_files(project_id: str, db: DbDep):
+    project = _get_project_or_404(project_id, db)
+    return project.show_files
+
+
+@router.post("/{project_id}/show-files", response_model=ShowFileOut, status_code=201)
+def package_project_show_file(project_id: str, db: DbDep):
+    project = _get_project_or_404(project_id, db)
+    _mark_stale_scripts_for_kb_changes(project, db)
+    errors = show_file.validate_packaging_gate(project)
+    if errors:
+        raise HTTPException(400, {"message": "Show File packaging gate failed", "errors": errors})
+    packaged = show_file.package_show_file(project)
+    db.add(packaged)
+    db.commit()
+    db.refresh(packaged)
+    return packaged
+
+
+@router.get("/{project_id}/show-files/{show_file_id}", response_model=ShowFileOut)
+def get_show_file(project_id: str, show_file_id: str, db: DbDep):
+    project = _get_project_or_404(project_id, db)
+    for item in project.show_files:
+        if item.id == show_file_id:
+            return item
+    raise HTTPException(404, "Show File not found")
+
+
+@router.post("/{project_id}/show-files/{show_file_id}/validate", response_model=ShowFileOut)
+def validate_show_file(project_id: str, show_file_id: str, db: DbDep):
+    project = _get_project_or_404(project_id, db)
+    for item in project.show_files:
+        if item.id == show_file_id:
+            show_dir = os.path.dirname(item.manifest_path)
+            item.validation_errors = show_file.validate_show_bundle(show_dir, item.manifest)
+            item.status = "ready" if not item.validation_errors else "invalid"
+            db.add(item)
+            db.commit()
+            db.refresh(item)
+            return item
+    raise HTTPException(404, "Show File not found")
+
+
+@router.get("/{project_id}/show-files/{show_file_id}/download")
+def download_show_file(project_id: str, show_file_id: str, db: DbDep) -> FileResponse:
+    project = _get_project_or_404(project_id, db)
+    for item in project.show_files:
+        if item.id == show_file_id:
+            if not os.path.exists(item.bundle_path):
+                raise HTTPException(404, "Show File bundle not found")
+            return FileResponse(
+                item.bundle_path,
+                media_type="application/zip",
+                filename=f"{project.name.replace(' ', '_')}_show_v{item.version}.zip",
+            )
+    raise HTTPException(404, "Show File not found")
+
+
 @router.get("/{project_id}/slides/{slide_id}/image")
 def get_slide_image(project_id: str, slide_id: str, db: DbDep) -> FileResponse:
     project = _get_project_or_404(project_id, db)
@@ -269,6 +341,45 @@ def update_script_review_settings(
     db.commit()
     db.refresh(script)
     return script
+
+
+@router.post("/{project_id}/slides/{slide_id}/script/segments/{segment_index}/preview-audio")
+def preview_segment_audio(
+    project_id: str,
+    slide_id: str,
+    segment_index: int,
+    body: ScriptAudioPreviewRequest,
+    db: DbDep,
+) -> FileResponse:
+    project = _get_project_or_404(project_id, db)
+    script = _get_slide_script_or_404(project, slide_id)
+    segment = next(
+        (item for item in script.segments if int(item.get("index", 0)) == segment_index),
+        None,
+    )
+    if not segment:
+        raise HTTPException(404, "Segment not found")
+
+    settings = get_settings()
+    preview_dir = os.path.join(settings.STORAGE_DIR, "projects", project.id, "audio_previews")
+    os.makedirs(preview_dir, exist_ok=True)
+    output_path = os.path.join(
+        preview_dir,
+        f"slide_{slide_id}_script_v{script.version}_segment_{segment_index}.wav",
+    )
+    preview_config = {**(script.preview_config or {}), **(body.preview_config or {})}
+    voice_id = (
+        preview_config.get("voice_id")
+        or script.tone_override.get("voice_id")
+        or (project.tone_profile or {}).get("voice_id")
+    )
+    get_tts_provider().synthesize(
+        text=segment.get("text", ""),
+        output_path=output_path,
+        voice_id=voice_id,
+        preview_config=preview_config,
+    )
+    return FileResponse(output_path, media_type="audio/wav", filename=f"slide_{slide_id}_segment_{segment_index}.wav")
 
 
 @router.post("/{project_id}/deck", response_model=ProjectOut)

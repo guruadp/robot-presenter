@@ -47,6 +47,11 @@ class Project(Base):
         cascade="all, delete-orphan",
         order_by="ProjectSlide.position",
     )
+    show_files: Mapped[list["ShowFile"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ShowFile.version",
+    )
 
 
 class ProjectKnowledgeBase(Base):
@@ -114,3 +119,21 @@ class ProjectSlideScript(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     slide: Mapped["ProjectSlide"] = relationship(back_populates="script")
+
+
+class ShowFile(Base):
+    __tablename__ = "show_files"
+    __table_args__ = (UniqueConstraint("project_id", "version", name="uq_show_file_project_version"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="ready", nullable=False)
+    manifest_path: Mapped[str] = mapped_column(String, nullable=False)
+    bundle_path: Mapped[str] = mapped_column(String, nullable=False)
+    manifest: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    validation_errors: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    tts_provider: Mapped[str] = mapped_column(String, default="free-local", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    project: Mapped["Project"] = relationship(back_populates="show_files")
