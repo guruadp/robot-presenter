@@ -1,11 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Check,
   ChevronLeft,
   ChevronRight,
   Clock,
+  Edit3,
   FileText,
+  Play,
   RefreshCw,
+  RotateCcw,
+  Save,
   Upload,
   Wand2,
 } from "lucide-react";
@@ -15,6 +20,7 @@ import { ProjectSlide, projectApi } from "../api/projects";
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
+import Input from "../components/ui/Input";
 import Spinner from "../components/ui/Spinner";
 import Textarea from "../components/ui/Textarea";
 
@@ -74,7 +80,7 @@ export default function ProjectDetailPage() {
   }
 
   const selectedSlide = project.slides[selectedIndex] ?? null;
-  const scriptedCount = project.slides.filter((slide) => slide.script).length;
+  const approvedCount = project.slides.filter((slide) => slide.script?.status === "approved").length;
 
   return (
     <>
@@ -93,8 +99,8 @@ export default function ProjectDetailPage() {
               <h1 className="text-2xl font-semibold text-gray-900">
                 {project.name}
               </h1>
-              <Badge variant={scriptedCount === project.slides.length && project.slides.length ? "green" : "amber"}>
-                {scriptedCount}/{project.slides.length} scripted
+              <Badge variant={approvedCount === project.slides.length && project.slides.length ? "green" : "amber"}>
+                {approvedCount}/{project.slides.length} approved
               </Badge>
             </div>
             <p className="text-sm text-gray-500">
@@ -199,7 +205,7 @@ function SlidePager({
             key={slide.id}
             type="button"
             onClick={() => onSelect(index)}
-            className={`h-8 min-w-8 rounded-md px-2 text-sm font-medium transition-colors ${
+            className={`relative h-8 min-w-8 rounded-md px-2 text-sm font-medium transition-colors ${
               selectedIndex === index
                 ? "bg-indigo-600 text-white"
                 : "bg-gray-50 text-gray-600 hover:bg-gray-100"
@@ -207,6 +213,17 @@ function SlidePager({
             aria-label={`Go to slide ${slide.position}`}
           >
             {slide.position}
+            {slide.script && (
+              <span
+                className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-white ${
+                  slide.script.status === "approved"
+                    ? "bg-emerald-500"
+                    : slide.script.status === "stale"
+                      ? "bg-red-500"
+                      : "bg-amber-400"
+                }`}
+              />
+            )}
           </button>
         ))}
       </div>
@@ -297,13 +314,41 @@ function ScriptPanel({
   const [makeShorter, setMakeShorter] = useState(false);
   const [moreEnergy, setMoreEnergy] = useState(false);
   const [moreCitations, setMoreCitations] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftNarration, setDraftNarration] = useState("");
+  const [selectedCitationId, setSelectedCitationId] = useState<string | null>(null);
+  const [previewSegment, setPreviewSegment] = useState<number | null>(null);
+  const [toneOverride, setToneOverride] = useState({
+    persona: "",
+    formality: "",
+    pace: "",
+  });
+  const [previewConfig, setPreviewConfig] = useState({
+    voice_id: "",
+    emphasis: "balanced",
+    pause_ms: "250",
+  });
 
   useEffect(() => {
     setFeedback("");
     setMakeShorter(false);
     setMoreEnergy(false);
     setMoreCitations(false);
-  }, [slide?.id]);
+    setIsEditing(false);
+    setSelectedCitationId(null);
+    setPreviewSegment(null);
+    setDraftNarration(slide?.script?.narration ?? "");
+    setToneOverride({
+      persona: stringValue(slide?.script?.tone_override.persona),
+      formality: stringValue(slide?.script?.tone_override.formality),
+      pace: stringValue(slide?.script?.tone_override.pace),
+    });
+    setPreviewConfig({
+      voice_id: stringValue(slide?.script?.preview_config.voice_id),
+      emphasis: stringValue(slide?.script?.preview_config.emphasis) || "balanced",
+      pause_ms: stringValue(slide?.script?.preview_config.pause_ms) || "250",
+    });
+  }, [slide?.id, slide?.script]);
 
   const regenerateMutation = useMutation({
     mutationFn: () =>
@@ -312,6 +357,33 @@ function ScriptPanel({
         make_shorter: makeShorter,
         more_energy: moreEnergy,
         more_citations: moreCitations,
+        tone_override: compactObject(toneOverride),
+      }),
+    onSuccess: () => onChanged(),
+  });
+  const editMutation = useMutation({
+    mutationFn: () => projectApi.editScript(projectId, slide!.id, draftNarration),
+    onSuccess: () => {
+      setIsEditing(false);
+      onChanged();
+    },
+  });
+  const approveMutation = useMutation({
+    mutationFn: () => projectApi.approveScript(projectId, slide!.id),
+    onSuccess: () => onChanged(),
+  });
+  const revertMutation = useMutation({
+    mutationFn: () => projectApi.revertScript(projectId, slide!.id),
+    onSuccess: () => {
+      setIsEditing(false);
+      onChanged();
+    },
+  });
+  const settingsMutation = useMutation({
+    mutationFn: () =>
+      projectApi.updateReviewSettings(projectId, slide!.id, {
+        tone_override: compactObject(toneOverride),
+        preview_config: compactObject(previewConfig),
       }),
     onSuccess: () => onChanged(),
   });
@@ -331,7 +403,8 @@ function ScriptPanel({
         </div>
         {script ? (
           <div className="flex items-center gap-2">
-            <Badge variant="indigo">Draft v{script.version}</Badge>
+            <ScriptStatusBadge status={script.status} />
+            <Badge variant="indigo">v{script.version}</Badge>
             <span className="inline-flex items-center gap-1 text-xs text-gray-400">
               <Clock size={12} />
               {script.duration_seconds}s
@@ -345,10 +418,68 @@ function ScriptPanel({
       <div className="p-4 space-y-4">
         {script ? (
           <>
+            {script.stale_reasons.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {script.stale_reasons.join(" · ")}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Edit3 size={13} />}
+                onClick={() => {
+                  setDraftNarration(script.narration);
+                  setIsEditing((editing) => !editing);
+                }}
+              >
+                {isEditing ? "Cancel Edit" : "Edit"}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<RotateCcw size={13} />}
+                disabled={!script.revision_history.length}
+                loading={revertMutation.isPending}
+                onClick={() => revertMutation.mutate()}
+              >
+                Revert
+              </Button>
+              <Button
+                size="sm"
+                icon={<Check size={13} />}
+                loading={approveMutation.isPending}
+                disabled={script.status === "approved"}
+                onClick={() => approveMutation.mutate()}
+              >
+                Approve
+              </Button>
+            </div>
+
             <div className="rounded-lg bg-gray-50 p-4">
-              <p className="whitespace-pre-wrap text-sm leading-6 text-gray-800">
-                {script.narration}
-              </p>
+              {isEditing ? (
+                <div className="space-y-3">
+                  <Textarea
+                    label="Editable narration"
+                    value={draftNarration}
+                    onChange={(e) => setDraftNarration(e.target.value)}
+                    rows={8}
+                  />
+                  <Button
+                    icon={<Save size={14} />}
+                    loading={editMutation.isPending}
+                    disabled={!draftNarration.trim()}
+                    onClick={() => editMutation.mutate()}
+                  >
+                    Save Version
+                  </Button>
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap text-sm leading-6 text-gray-800">
+                  {script.narration}
+                </p>
+              )}
             </div>
 
             {script.citations.length > 0 && (
@@ -358,27 +489,127 @@ function ScriptPanel({
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {script.citations.map((citation) => (
-                    <span
+                    <button
+                      type="button"
                       key={citation.id}
-                      className="inline-flex max-w-full items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600"
-                      title={citation.value}
+                      onClick={() =>
+                        setSelectedCitationId((current) =>
+                          current === citation.id ? null : citation.id
+                        )
+                      }
+                      className="inline-flex max-w-full items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600 hover:border-indigo-200 hover:text-indigo-700"
                     >
                       <span className="font-medium truncate">{citation.label}</span>
                       <span className="text-gray-300">·</span>
                       <span className="truncate">{citation.source}</span>
-                    </span>
+                    </button>
                   ))}
                 </div>
+                {selectedCitationId && (
+                  <div className="mt-2 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600">
+                    {script.citations
+                      .filter((citation) => citation.id === selectedCitationId)
+                      .map((citation) => (
+                        <div key={citation.id}>
+                          <p className="font-semibold text-gray-900">{citation.label}</p>
+                          <p className="mt-1">{citation.value}</p>
+                          <p className="mt-1 text-gray-400">
+                            {citation.source} · KB v{citation.kb_version ?? "?"}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             )}
 
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-                Delivery
+                Tone Override
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(script.delivery_style).map(([key, value]) => (
-                  <Badge key={key}>{key}: {String(value)}</Badge>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Input
+                  label="Persona"
+                  placeholder={String(script.delivery_style.persona ?? "helpful presenter")}
+                  value={toneOverride.persona}
+                  onChange={(e) => setToneOverride((v) => ({ ...v, persona: e.target.value }))}
+                />
+                <Input
+                  label="Formality"
+                  placeholder={String(script.delivery_style.formality ?? "balanced")}
+                  value={toneOverride.formality}
+                  onChange={(e) => setToneOverride((v) => ({ ...v, formality: e.target.value }))}
+                />
+                <Input
+                  label="Pace"
+                  placeholder={String(script.delivery_style.pace ?? "normal")}
+                  value={toneOverride.pace}
+                  onChange={(e) => setToneOverride((v) => ({ ...v, pace: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  Voice + Delivery Preview
+                </p>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<Save size={13} />}
+                  loading={settingsMutation.isPending}
+                  onClick={() => settingsMutation.mutate()}
+                >
+                  Save Preview Settings
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                <Input
+                  label="Voice"
+                  placeholder="Voice ID"
+                  value={previewConfig.voice_id}
+                  onChange={(e) => setPreviewConfig((v) => ({ ...v, voice_id: e.target.value }))}
+                />
+                <Input
+                  label="Emphasis"
+                  value={previewConfig.emphasis}
+                  onChange={(e) => setPreviewConfig((v) => ({ ...v, emphasis: e.target.value }))}
+                />
+                <Input
+                  label="Pause ms"
+                  value={previewConfig.pause_ms}
+                  onChange={(e) => setPreviewConfig((v) => ({ ...v, pause_ms: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                {script.segments.map((segment) => (
+                  <div
+                    key={segment.index}
+                    className="rounded-lg border border-gray-200 bg-white p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm text-gray-700">{segment.text}</p>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<Play size={13} />}
+                        onClick={() => setPreviewSegment(segment.index)}
+                      >
+                        Preview
+                      </Button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {segment.audio_tags.map((tag) => (
+                        <Badge key={tag}>{tag}</Badge>
+                      ))}
+                    </div>
+                    {previewSegment === segment.index && (
+                      <p className="mt-2 rounded-md bg-indigo-50 px-2 py-1 text-xs text-indigo-700">
+                        Preview queued with {previewConfig.voice_id || "project voice"}, {previewConfig.emphasis} emphasis, {previewConfig.pause_ms}ms pauses.
+                      </p>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -411,9 +642,19 @@ function ScriptPanel({
           />
         )}
 
-        {regenerateMutation.error && (
+        {(regenerateMutation.error ||
+          editMutation.error ||
+          approveMutation.error ||
+          revertMutation.error ||
+          settingsMutation.error) && (
           <p className="text-xs text-red-500">
-            {(regenerateMutation.error as Error).message}
+            {errorMessage(
+              regenerateMutation.error ||
+                editMutation.error ||
+                approveMutation.error ||
+                revertMutation.error ||
+                settingsMutation.error
+            )}
           </p>
         )}
       </div>
@@ -441,6 +682,26 @@ function Toggle({
       {label}
     </label>
   );
+}
+
+function ScriptStatusBadge({ status }: { status: string }) {
+  if (status === "approved") return <Badge variant="green">Approved</Badge>;
+  if (status === "stale") return <Badge variant="red">Stale</Badge>;
+  return <Badge variant="amber">Draft</Badge>;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function compactObject(values: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => String(value ?? "").trim())
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Review action failed";
 }
 
 function invalidateProject(

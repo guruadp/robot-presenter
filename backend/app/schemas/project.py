@@ -47,7 +47,12 @@ class ProjectSlideScriptOut(BaseModel):
     delivery_style: dict = Field(default_factory=dict)
     running_summary: str
     feedback: Optional[str] = None
+    revision_history: list[dict] = Field(default_factory=list)
+    tone_override: dict = Field(default_factory=dict)
+    preview_config: dict = Field(default_factory=dict)
+    stale_reasons: list[str] = Field(default_factory=list)
     version: int
+    approved_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -59,6 +64,16 @@ class RegenerateScriptRequest(BaseModel):
     make_shorter: bool = False
     more_energy: bool = False
     more_citations: bool = False
+    tone_override: dict = Field(default_factory=dict)
+
+
+class ScriptEditRequest(BaseModel):
+    narration: str
+
+
+class ScriptReviewSettingsRequest(BaseModel):
+    tone_override: dict = Field(default_factory=dict)
+    preview_config: dict = Field(default_factory=dict)
 
 
 class ProjectSlideOut(BaseModel):

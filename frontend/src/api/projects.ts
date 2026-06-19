@@ -60,9 +60,22 @@ export interface ProjectSlideScript {
   delivery_style: Record<string, unknown>;
   running_summary: string;
   feedback: string | null;
+  revision_history: ProjectScriptRevision[];
+  tone_override: Record<string, unknown>;
+  preview_config: Record<string, unknown>;
+  stale_reasons: string[];
   version: number;
+  approved_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectScriptRevision {
+  version: number;
+  narration: string;
+  status: string;
+  duration_seconds: number;
+  updated_at: string | null;
 }
 
 export interface ProjectScriptSegment {
@@ -87,6 +100,12 @@ export interface RegenerateScriptRequest {
   make_shorter: boolean;
   more_energy: boolean;
   more_citations: boolean;
+  tone_override?: Record<string, unknown>;
+}
+
+export interface ScriptReviewSettingsRequest {
+  tone_override: Record<string, unknown>;
+  preview_config: Record<string, unknown>;
 }
 
 export interface Project {
@@ -131,6 +150,32 @@ export const projectApi = {
     json<ProjectSlideScript>(
       `/projects/${projectId}/slides/${slideId}/script/regenerate`,
       "POST",
+      body
+    ),
+  editScript: (projectId: string, slideId: string, narration: string) =>
+    json<ProjectSlideScript>(
+      `/projects/${projectId}/slides/${slideId}/script`,
+      "PATCH",
+      { narration }
+    ),
+  approveScript: (projectId: string, slideId: string) =>
+    request<ProjectSlideScript>(
+      `/projects/${projectId}/slides/${slideId}/script/approve`,
+      { method: "POST" }
+    ),
+  revertScript: (projectId: string, slideId: string) =>
+    request<ProjectSlideScript>(
+      `/projects/${projectId}/slides/${slideId}/script/revert`,
+      { method: "POST" }
+    ),
+  updateReviewSettings: (
+    projectId: string,
+    slideId: string,
+    body: ScriptReviewSettingsRequest
+  ) =>
+    json<ProjectSlideScript>(
+      `/projects/${projectId}/slides/${slideId}/script/review-settings`,
+      "PATCH",
       body
     ),
   slideImageUrl: (projectId: string, slideId: string) =>

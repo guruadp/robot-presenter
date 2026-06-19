@@ -104,7 +104,12 @@ class ProjectSlideScript(Base):
     delivery_style: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     running_summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
     feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    revision_history: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    tone_override: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    preview_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    stale_reasons: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 

@@ -19,6 +19,7 @@ class GenerationOptions:
     more_energy: bool = False
     more_citations: bool = False
     preserve_approved_neighbors: bool = True
+    tone_override: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -95,7 +96,7 @@ def generate_slide_script(
     relevant_facts = _relevant_facts(slide, facts)
     relevant_limitations = _relevant_limitations(slide, limitations)
     citations = _citations(project, relevant_facts, relevant_limitations)
-    tone = project.tone_profile or {}
+    tone = {**(project.tone_profile or {}), **(options.tone_override or {})}
     energy = _energy_for(section, options.more_energy)
 
     try:
@@ -138,6 +139,7 @@ def generate_slide_script(
         "structured_fact_count": len(relevant_facts),
         "limitation_count": len(relevant_limitations),
         "section": section,
+        "tone_override": options.tone_override or {},
     }
 
     return SlideGenerationResult(
@@ -176,6 +178,44 @@ def upsert_slide_script(
     script.delivery_style = result.delivery_style
     script.running_summary = result.running_summary
     script.feedback = feedback
+    script.tone_override = result.context.get("tone_override", script.tone_override or {})
+    script.stale_reasons = []
+    return script
+
+
+def edit_script(script: ProjectSlideScript, narration: str) -> ProjectSlideScript:
+    history = list(script.revision_history or [])
+    history.append(
+        {
+            "version": script.version,
+            "narration": script.narration,
+            "status": script.status,
+            "duration_seconds": script.duration_seconds,
+            "updated_at": script.updated_at.isoformat() if script.updated_at else None,
+        }
+    )
+    script.revision_history = history[-20:]
+    script.narration = narration.strip()
+    script.segments = _segments(script.narration, script.delivery_style.get("energy", "steady"), script.delivery_style)
+    script.duration_seconds = _duration_seconds(script.narration, script.delivery_style.get("pace", "normal"))
+    script.status = "draft"
+    script.approved_at = None
+    script.version += 1
+    return script
+
+
+def revert_script(script: ProjectSlideScript) -> ProjectSlideScript:
+    history = list(script.revision_history or [])
+    if not history:
+        return script
+    previous = history.pop()
+    script.revision_history = history
+    script.narration = previous.get("narration", script.narration)
+    script.duration_seconds = previous.get("duration_seconds", script.duration_seconds)
+    script.segments = _segments(script.narration, script.delivery_style.get("energy", "steady"), script.delivery_style)
+    script.status = "draft"
+    script.approved_at = None
+    script.version += 1
     return script
 
 
