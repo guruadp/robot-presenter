@@ -219,6 +219,30 @@ def download_show_file(project_id: str, show_file_id: str, db: DbDep) -> FileRes
     raise HTTPException(404, "Show File not found")
 
 
+@router.get("/{project_id}/show-files/{show_file_id}/assets/{asset_path:path}")
+def get_show_file_asset(
+    project_id: str,
+    show_file_id: str,
+    asset_path: str,
+    db: DbDep,
+) -> FileResponse:
+    project = _get_project_or_404(project_id, db)
+    for item in project.show_files:
+        if item.id != show_file_id:
+            continue
+        show_dir = os.path.abspath(os.path.dirname(item.manifest_path))
+        requested = os.path.abspath(os.path.join(show_dir, asset_path))
+        if not requested.startswith(show_dir + os.sep):
+            raise HTTPException(400, "Invalid Show File asset path")
+        if not os.path.exists(requested):
+            raise HTTPException(404, "Show File asset not found")
+        media_type = "image/png" if requested.lower().endswith(".png") else "application/octet-stream"
+        if requested.lower().endswith(".wav"):
+            media_type = "audio/wav"
+        return FileResponse(requested, media_type=media_type)
+    raise HTTPException(404, "Show File not found")
+
+
 @router.get("/{project_id}/slides/{slide_id}/image")
 def get_slide_image(project_id: str, slide_id: str, db: DbDep) -> FileResponse:
     project = _get_project_or_404(project_id, db)

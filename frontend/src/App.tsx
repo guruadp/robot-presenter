@@ -4,10 +4,12 @@ import KBDetailPage from "./pages/KBDetailPage";
 import KBsPage from "./pages/KBsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import ProjectsPage from "./pages/ProjectsPage";
+import ShowViewerPage from "./pages/ShowViewerPage";
 
 export default function App() {
   return (
     <Routes>
+      <Route path="/viewer/:projectId/:showFileId" element={<ShowViewerPage />} />
       <Route path="/" element={<Layout />}>
         <Route index element={<Navigate to="/kbs" replace />} />
         <Route path="kbs" element={<KBsPage />} />

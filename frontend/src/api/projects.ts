@@ -178,6 +178,10 @@ export const projectApi = {
     request<ShowFile>(`/projects/${projectId}/show-files`, { method: "POST" }),
   showFileDownloadUrl: (projectId: string, showFileId: string) =>
     `${BASE}/projects/${projectId}/show-files/${showFileId}/download`,
+  getShowFile: (projectId: string, showFileId: string) =>
+    request<ShowFile>(`/projects/${projectId}/show-files/${showFileId}`),
+  showFileAssetUrl: (projectId: string, showFileId: string, assetPath: string) =>
+    `${BASE}/projects/${projectId}/show-files/${showFileId}/assets/${assetPath}`,
   regenerateScript: (
     projectId: string,
     slideId: string,

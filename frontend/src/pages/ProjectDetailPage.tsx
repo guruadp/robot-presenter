@@ -13,6 +13,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  ScreenShare,
   Upload,
   Wand2,
 } from "lucide-react";
@@ -317,13 +318,24 @@ function PackagePanel({
                 {latest.validation_errors.join(" · ")}
               </p>
             )}
-            <a
-              href={projectApi.showFileDownloadUrl(projectId, latest.id)}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 hover:bg-gray-50"
-            >
-              <Download size={13} />
-              Download Show File
-            </a>
+            <div className="mt-2 flex items-center gap-2">
+              <a
+                href={`/viewer/${projectId}/${latest.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+              >
+                <ScreenShare size={13} />
+                Open Viewer
+              </a>
+              <a
+                href={projectApi.showFileDownloadUrl(projectId, latest.id)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 hover:bg-gray-50"
+              >
+                <Download size={13} />
+                Download
+              </a>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-gray-400">No packaged Show File yet.</p>

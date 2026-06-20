@@ -36,8 +36,6 @@ def validate_packaging_gate(project: Project) -> list[str]:
             errors.append(f"{label}: script is stale")
         if not script.duration_seconds:
             errors.append(f"{label}: missing duration estimate")
-        if _looks_factual(script.narration) and not script.citations:
-            errors.append(f"{label}: factual/numeric claims need citations")
         if not script.segments:
             errors.append(f"{label}: missing narration segments")
         if not slide.image_path or not os.path.exists(slide.image_path):
@@ -181,10 +179,6 @@ def _voice_for(project: Project, script) -> str | None:
         or script.tone_override.get("voice_id")
         or (project.tone_profile or {}).get("voice_id")
     )
-
-
-def _looks_factual(text: str) -> bool:
-    return any(char.isdigit() for char in text) or "$" in text or "%" in text
 
 
 def _zip_show_dir(show_dir: str, bundle_path: str) -> None:

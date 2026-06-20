@@ -105,6 +105,7 @@ class OpenAITTS:
 
     def __init__(self, fallback=None):
         self.fallback = fallback or FreeLocalTTS()
+        self._openai_unavailable = False
 
     def synthesize(
         self,
@@ -119,8 +120,16 @@ class OpenAITTS:
         instructions = _openai_instructions(preview_config)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
+        if self._openai_unavailable:
+            return self.fallback.synthesize(text, output_path, voice_id=voice, preview_config=preview_config)
+
         try:
-            with OpenAI(api_key=settings.OPENAI_API_KEY).audio.speech.with_streaming_response.create(
+            client = OpenAI(
+                api_key=settings.OPENAI_API_KEY,
+                timeout=settings.OPENAI_TTS_TIMEOUT_SECONDS,
+                max_retries=settings.OPENAI_TTS_MAX_RETRIES,
+            )
+            with client.audio.speech.with_streaming_response.create(
                 model=settings.OPENAI_TTS_MODEL,
                 voice=voice,
                 input=text,
@@ -129,6 +138,7 @@ class OpenAITTS:
             ) as response:
                 response.stream_to_file(output_path)
         except Exception:
+            self._openai_unavailable = True
             return self.fallback.synthesize(text, output_path, voice_id=voice, preview_config=preview_config)
 
         return TTSResult(

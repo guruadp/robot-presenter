@@ -24,6 +24,8 @@ OpenAI TTS is the default for human-like narration previews and packaged Show Fi
 TTS_PROVIDER=openai
 OPENAI_TTS_MODEL=gpt-4o-mini-tts
 OPENAI_TTS_VOICE=marin
+OPENAI_TTS_TIMEOUT_SECONDS=12
+OPENAI_TTS_MAX_RETRIES=0
 ```
 
 Good built-in voices to try: `marin`, `cedar`, `coral`, `nova`, `shimmer`.
@@ -34,6 +36,8 @@ For offline/dev fallback, use free local TTS:
 TTS_PROVIDER=free-local
 sudo apt install espeak-ng
 ```
+
+Packaging renders audio for every approved script segment, so OpenAI TTS can take a little time on larger decks. If OpenAI TTS times out or fails once during packaging, the app falls back to local TTS for the remaining segments so the Show File still completes. For fastest local testing, set `TTS_PROVIDER=free-local`.
 
 ### 2. Backend
 

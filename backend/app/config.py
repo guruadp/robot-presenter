@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     TTS_PROVIDER: str = "openai"  # openai | free-local
     OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
     OPENAI_TTS_VOICE: str = "marin"
+    OPENAI_TTS_TIMEOUT_SECONDS: float = 12.0
+    OPENAI_TTS_MAX_RETRIES: int = 0
 
 
 @lru_cache
